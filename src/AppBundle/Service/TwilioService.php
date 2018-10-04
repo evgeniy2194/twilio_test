@@ -8,10 +8,12 @@ use Twilio\Rest\Client;
 class TwilioService
 {
     private $client;
+    private $from;
 
-    public function __construct(Client $client)
+    public function __construct(Client $client, $from)
     {
         $this->client = $client;
+        $this->from = $from;
     }
 
     /**
@@ -22,7 +24,7 @@ class TwilioService
     public function sendSms($phoneNumber, $msg)
     {
         return $this->client->messages->create($phoneNumber, [
-            'from' => '+15005550006',
+            'from' => $this->from,
             'body' => $msg
         ]);
     }

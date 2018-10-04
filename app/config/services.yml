@@ -31,3 +31,6 @@ services:
 
     Twilio\Rest\Client:
         arguments: ['%twilio_sid%', '%twilio_token%']
+
+    AppBundle\Service\TwilioService:
+        arguments: ['@Twilio\Rest\Client', '%twilio_from%']
