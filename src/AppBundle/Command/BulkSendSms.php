@@ -45,7 +45,7 @@ class BulkSendSms extends Command
 
     /**
      * If exists first_id and last_id - send all unsent messages from first_id to last_id
-     * Else - run smsProcessor that check new unsent messages and start asynchronous processes
+     * Else - run smsProcessor that checks new scheduled messages and start asynchronous processes
      *
      * @param InputInterface $input
      * @param OutputInterface $output
@@ -153,11 +153,11 @@ class BulkSendSms extends Command
     /**
      * Return unsent sms_processor
      *
-     * @param null $fromId
-     * @param null $toId
+     * @param null $firstId
+     * @param null $lastId
      * @return mixed
      */
-    private function getSmsProcessor($fromId = null, $toId = null)
+    private function getSmsProcessor($firstId = null, $lastId = null)
     {
         /** @var EntityRepository $repository */
         $repository = $this->em->getRepository('AppBundle:SmsProcessor');
@@ -167,12 +167,12 @@ class BulkSendSms extends Command
             ->orderBy('s.id')
             ->setMaxResults($this->limit);
 
-        if ($fromId && $toId) {
+        if ($firstId && $lastId) {
             $query->andWhere('s.id >= :fromId')
                 ->andWhere('s.id <= :toId')
                 ->setParameters([
-                    'fromId' => $fromId,
-                    'toId' => $toId
+                    'fromId' => $firstId,
+                    'toId' => $lastId
                 ]);
         }
 
