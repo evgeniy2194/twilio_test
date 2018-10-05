@@ -23,7 +23,7 @@ class BulkSendSms extends Command
     private $limit = 1000;
     private $chunkSize = 100;
 
-    /** @var int $sleepTime - daemon sleep time */
+    /** @var int $sleepTime - smsProcessor sleep time */
     private $sleepTime = 2;
 
     public function __construct(TwilioService $twilioService, EntityManagerInterface $em)
@@ -45,7 +45,7 @@ class BulkSendSms extends Command
 
     /**
      * If exists first_id and last_id - send all unsent messages from first_id to last_id
-     * Else - run daemon that check new unsent messages and start asynchronous processes
+     * Else - run smsProcessor that check new unsent messages and start asynchronous processes
      *
      * @param InputInterface $input
      * @param OutputInterface $output
@@ -59,8 +59,8 @@ class BulkSendSms extends Command
         if ($firstId && $lastId) {
             $this->sendSms($firstId, $lastId);
         } else {
-            //Run daemon
-            $this->daemon();
+            //Run smsProcessor
+            $this->smsProcessor($output);
         }
     }
 
@@ -88,16 +88,31 @@ class BulkSendSms extends Command
     }
 
     /**
-     * Run php daemon
+     * Run php smsProcessor
+     *
+     * @param $output OutputInterface
      */
-    private function daemon()
+    private function smsProcessor(OutputInterface $output)
     {
         $processes = [];
+
+        $output->writeln('Run sms processor');
 
         while (1) {
             //Check if there are any running processes
             if (!sizeof($processes)) {
+                $output->writeln('Get scheduled messages');
                 $messages = $this->getSmsProcessor();
+
+                $messagesCount = sizeof($messages);
+
+                if (!$messagesCount) {
+                    $output->writeln('There are no scheduled messages');
+                    $output->writeln('Done!');
+                    exit;
+                }
+
+                $output->writeln('Found ' . $messagesCount . ' messages');
 
                 //If unsent messages exists
                 if (sizeof($messages)) {
@@ -105,26 +120,32 @@ class BulkSendSms extends Command
 
                     //Run asynchronous process for each chunk
                     foreach ($chunks as $chunk) {
-                        $firsId = ($chunk[0])->getId();
+                        $firstId = ($chunk[0])->getId();
                         $lastId = end($chunk)->getId();
 
+                        $output->writeln("Processing messages from $firstId to $lastId");
+
                         //Run asynchronous process that send chunk of messages
-                        $process = new Process('php bin/console cariba:send-sms ' . $firsId . ' ' . $lastId);
+                        $process = new Process('php bin/console cariba:send-sms ' . $firstId . ' ' . $lastId);
                         $process->start();
                         $processes[] = $process;
                     }
 
                     //Check if processes is running
                     while (sizeof($processes) > 0) {
+                        $output->writeln("Waiting for the processes to complete...");
                         foreach ($processes as $processKey => $process) {
                             if (!$process->isRunning()) {
                                 unset($processes[$processKey]);
                             }
                         }
+
+                        sleep(1);
                     }
                 }
             }
 
+            $output->writeln('Sleep ' . $this->sleepTime . ' seconds');
             sleep($this->sleepTime);
         }
     }
