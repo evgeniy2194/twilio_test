@@ -10,6 +10,12 @@ class TwilioService
     private $client;
     private $from;
 
+    /**
+     * TwilioService constructor.
+     *
+     * @param Client $client
+     * @param string $from
+     */
     public function __construct(Client $client, $from)
     {
         $this->client = $client;

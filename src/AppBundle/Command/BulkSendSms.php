@@ -5,6 +5,7 @@ namespace AppBundle\Command;
 use AppBundle\Entity\SmsProcessor;
 use AppBundle\Service\TwilioService;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\EntityRepository;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -21,6 +22,9 @@ class BulkSendSms extends Command
 
     private $limit = 1000;
     private $chunkSize = 100;
+
+    /** @var int $sleepTime - daemon sleep time */
+    private $sleepTime = 2;
 
     public function __construct(TwilioService $twilioService, EntityManagerInterface $em)
     {
@@ -39,6 +43,14 @@ class BulkSendSms extends Command
             ->addArgument('last_id', InputArgument::OPTIONAL, 'Id of last sms to send');
     }
 
+    /**
+     * If exists first_id and last_id - send all unsent messages from first_id to last_id
+     * Else - run daemon that check new unsent messages and start asynchronous processes
+     *
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @return int|null|void
+     */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $firstId = $input->getArgument('first_id');
@@ -52,24 +64,20 @@ class BulkSendSms extends Command
         }
     }
 
-    private function getMessages($fromId = null, $toId = null)
-    {
-        $where = ['result' => null];
-
-        if ($fromId && $toId) {
-            $where['id'] = range($fromId, $toId);
-        }
-
-        return $this->em->getRepository('AppBundle:SmsProcessor')
-            ->findBy($where, ['id' => 'ASC'], $this->limit);
-    }
-
+    /**
+     * Send bulk sms from $firstId to $lastId
+     *
+     * @param $firstId
+     * @param $lastId
+     */
     private function sendSms($firstId, $lastId)
     {
-        $messages = $this->getMessages($firstId, $lastId);
+        //Load sms_processor from database
+        $messages = $this->getSmsProcessor($firstId, $lastId);
 
         /** @var SmsProcessor $message */
         foreach ($messages as $message) {
+            //Send sms by twilio api
             $result = $this->twilioService->sendSms(
                 $message->getPhoneNumber(),
                 $message->getMsg()
@@ -79,30 +87,34 @@ class BulkSendSms extends Command
         }
     }
 
+    /**
+     * Run php daemon
+     */
     private function daemon()
     {
         $processes = [];
 
         while (1) {
-            echo 'get messages';
-
+            //Check if there are any running processes
             if (!sizeof($processes)) {
-                $messages = $this->getMessages();
+                $messages = $this->getSmsProcessor();
 
-                echo 'found ' . sizeof($messages);
-
+                //If unsent messages exists
                 if (sizeof($messages)) {
                     $chunks = array_chunk($messages, $this->chunkSize);
 
+                    //Run asynchronous process for each chunk
                     foreach ($chunks as $chunk) {
                         $firsId = ($chunk[0])->getId();
-                        $lasId = end($chunk)->getId();
+                        $lastId = end($chunk)->getId();
 
-                        $process = new Process('php bin/console cariba:send-sms ' . $firsId . ' ' . $lasId);
+                        //Run asynchronous process that send chunk of messages
+                        $process = new Process('php bin/console cariba:send-sms ' . $firsId . ' ' . $lastId);
                         $process->start();
                         $processes[] = $process;
                     }
 
+                    //Check if processes is running
                     while (sizeof($processes) > 0) {
                         foreach ($processes as $processKey => $process) {
                             if (!$process->isRunning()) {
@@ -113,7 +125,36 @@ class BulkSendSms extends Command
                 }
             }
 
-            sleep(2);
+            sleep($this->sleepTime);
         }
+    }
+
+    /**
+     * Return unsent sms_processor
+     *
+     * @param null $fromId
+     * @param null $toId
+     * @return mixed
+     */
+    private function getSmsProcessor($fromId = null, $toId = null)
+    {
+        /** @var EntityRepository $repository */
+        $repository = $this->em->getRepository('AppBundle:SmsProcessor');
+
+        $query = $repository->createQueryBuilder('s')
+            ->where('s.result IS NULL')
+            ->orderBy('id ASC')
+            ->setMaxResults($this->limit);
+
+        if ($fromId && $toId) {
+            $query->andWhere('s.id >= :fromId')
+                ->andWhere('s.id <= :toId')
+                ->setParameters([
+                    'fromId' => $fromId,
+                    'toId' => $toId
+                ]);
+        }
+
+        return $query->getQuery()->getResult();
     }
 }
