@@ -143,7 +143,7 @@ class BulkSendSms extends Command
 
         $query = $repository->createQueryBuilder('s')
             ->where('s.result IS NULL')
-            ->orderBy('id ASC')
+            ->orderBy('s.id')
             ->setMaxResults($this->limit);
 
         if ($fromId && $toId) {
